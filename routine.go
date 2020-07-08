@@ -9,33 +9,37 @@ const (
 	R_STATUS_INITIALIZING = iota
 	R_STATUS_STANDBY
 	R_STATUS_RUNNING
+	R_STATUS_FINISHED
 	R_STATUS_SHUTING
 	R_STATUS_DOWN
 )
 
 type routine struct {
 	status     int
-	signalCh   chan *signal
 	statusLock *sync.Mutex
+	signalCh   chan *signal
+	reportCh   chan<- int
 }
 
-func newRoutine(expire time.Duration) *routine {
+func newRoutine(expire time.Duration, reportCh chan<- int, taskCh <-chan *Runnable) *routine {
 	r := &routine{
 		status:     R_STATUS_INITIALIZING,
-		signalCh:   nil,
 		statusLock: &sync.Mutex{},
+		signalCh:   nil,
+		reportCh:   reportCh,
 	}
 
-	r.up(expire)
+	r.up(expire, taskCh)
 
 	return r
 }
 
-func (r *routine) up(expire time.Duration) bool {
+func (r *routine) up(expire time.Duration, taskCh <-chan *Runnable) bool {
 	r.statusLock.Lock()
 	defer r.statusLock.Unlock()
 
-	if r.getStatus() != R_STATUS_DOWN {
+	status := r.getStatus()
+	if !(status == R_STATUS_DOWN || status == R_STATUS_INITIALIZING) {
 		return false
 	}
 
@@ -43,7 +47,7 @@ func (r *routine) up(expire time.Duration) bool {
 	timeoutCh := time.After(expire)
 	r.signalCh = signalCh
 
-	go r._run(signalCh, timeoutCh)
+	go r._run(signalCh, timeoutCh, taskCh)
 
 	return true
 }
@@ -63,7 +67,7 @@ func (r *routine) shutdown() bool {
 	return true
 }
 
-func (r *routine) _run(signalCh <-chan *signal, timeoutCh <-chan time.Time) {
+func (r *routine) _run(signalCh <-chan *signal, timeoutCh <-chan time.Time, taskCh <-chan *Runnable) {
 	defer r._setStatus(R_STATUS_DOWN)
 
 	r._setStatus(R_STATUS_STANDBY)
@@ -84,7 +88,11 @@ func (r *routine) _run(signalCh <-chan *signal, timeoutCh <-chan time.Time) {
 			case <-signalCh:
 				r._setStatus(R_STATUS_SHUTING)
 				return
-				//todo: task case
+			case t := <-taskCh:
+				r._setStatus(R_STATUS_RUNNING)
+				(*t).Run()
+				r._setStatus(R_STATUS_FINISHED)
+				r._setStatus(R_STATUS_STANDBY)
 			}
 		}
 	}
@@ -92,6 +100,7 @@ func (r *routine) _run(signalCh <-chan *signal, timeoutCh <-chan time.Time) {
 
 func (r *routine) _setStatus(status int) {
 	r.status = status
+	r.reportCh <- status
 }
 
 func (r *routine) getStatus() int {
