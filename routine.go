@@ -1,135 +1,73 @@
 package pool
 
-import (
-	"sync"
-	"time"
-)
+import "time"
 
 const (
-	R_STATUS_INITIALIZING = iota
-	R_STATUS_STANDBY
-	R_STATUS_RUNNING
-	R_STATUS_FINISHED
-	R_STATUS_SHUTING
-	R_STATUS_DOWN
+	ROUTINE_STATUS_DOWN    = 0
+	ROUTINE_STATUS_STANDBY = 1
+	ROUTINE_STATUS_WORKING = 2
 )
 
 type routine struct {
-	status     int
-	statusLock *sync.Mutex
-	signalCh   chan *signal
-	reportCh   chan<- int
+	status int
+	taskCh chan Runnable
 }
 
-func newRoutine(expire time.Duration, reportCh chan<- int, taskCh <-chan *Runnable) *routine {
-	r := &routine{
-		status:     R_STATUS_INITIALIZING,
-		statusLock: &sync.Mutex{},
-		signalCh:   nil,
-		reportCh:   reportCh,
+func (r *routine) run(routineStandByCh chan<- chan Runnable, ttl uint) {
+	r.status = ROUTINE_STATUS_STANDBY
+	defer func() {
+		r.status = ROUTINE_STATUS_DOWN
+	}()
+
+	if nil == r.taskCh {
+		r.taskCh = make(chan Runnable)
+		defer close(r.taskCh)
 	}
 
-	r.up(expire, taskCh)
+	var (
+		longLive  bool = 0 == ttl
+		timer     *time.Timer
+		timeoutCh <-chan time.Time
+	)
 
-	return r
-}
-
-func (r *routine) up(expire time.Duration, taskCh <-chan *Runnable) bool {
-	r.statusLock.Lock()
-	defer r.statusLock.Unlock()
-
-	status := r.getStatus()
-	if !(status == R_STATUS_DOWN || status == R_STATUS_INITIALIZING) {
-		return false
+	if !longLive {
+		timer = time.NewTimer(time.Duration(ttl))
+		timeoutCh = timer.C
+	} else {
+		timeoutCh = make(<-chan time.Time, 0)
 	}
 
-	signalCh := make(chan *signal, 1)
-	timeoutCh := time.After(expire)
-	r.signalCh = signalCh
-
-	go r._run(signalCh, timeoutCh, taskCh)
-
-	return true
-}
-
-func (r *routine) shutdown() bool {
-	r.statusLock.Lock()
-	defer r.statusLock.Unlock()
-
-	if status := r.getStatus(); status == R_STATUS_DOWN || status == R_STATUS_SHUTING {
-		return false
-	}
-
-	r.signalCh <- newExitSignal()
-	close(r.signalCh)
-	r.signalCh = nil
-
-	return true
-}
-
-func (r *routine) _run(signalCh <-chan *signal, timeoutCh <-chan time.Time, taskCh <-chan *Runnable) {
-	defer r._setStatus(R_STATUS_DOWN)
-
-	r._setStatus(R_STATUS_STANDBY)
 	for {
-		select {
-		case <-timeoutCh:
-			r._setStatus(R_STATUS_SHUTING)
-			return
-		case <-signalCh:
-			r._setStatus(R_STATUS_SHUTING)
-			return
-		default:
+		r.status = ROUTINE_STATUS_STANDBY
 
+		select {
+		case routineStandByCh <- r.taskCh:
 			select {
-			case <-timeoutCh:
-				r._setStatus(R_STATUS_SHUTING)
-				return
-			case <-signalCh:
-				r._setStatus(R_STATUS_SHUTING)
-				return
-			case t := <-taskCh:
-				r._setStatus(R_STATUS_RUNNING)
-				(*t).Run()
-				r._setStatus(R_STATUS_FINISHED)
-				r._setStatus(R_STATUS_STANDBY)
+			case task, ok := <-r.taskCh:
+				r.status = ROUTINE_STATUS_WORKING
+				if !longLive && !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+
+				if !ok {
+					return
+				}
+
+				task.Run()
+				if !longLive {
+					timer.Reset(time.Duration(ttl))
+				}
 			}
+
+		case <-timeoutCh:
+			return
 		}
 	}
 }
 
-func (r *routine) _setStatus(status int) {
-	r.status = status
-	r.reportCh <- status
-}
-
-func (r *routine) getStatus() int {
-	return r.status
-}
-
-const (
-	SIG_EXIT = iota
-)
-
-func newExitSignal() *signal {
-	return newSignal(SIG_EXIT)
-}
-
-func newSignal(signalId int) *signal {
-	s := &signal{}
-	s.set(signalId)
-
-	return s
-}
-
-type signal struct {
-	signalId int
-}
-
-func (s *signal) get() int {
-	return s.signalId
-}
-
-func (s *signal) set(signalId int) {
-	s.signalId = signalId
+type Runnable interface {
+	Run()
 }
