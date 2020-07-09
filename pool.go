@@ -3,7 +3,7 @@ package pool
 type Pool struct {
 	ttl         uint
 	maxRoutine  int
-	taskCh      chan Runnable
+	taskQueue   chan Runnable
 	standByCh   chan chan Runnable
 	routinePool []*routine
 }
@@ -12,7 +12,7 @@ func New(args ...int) *Pool {
 	p := &Pool{
 		ttl:        0,
 		maxRoutine: 10,
-		taskCh:     make(chan Runnable),
+		taskQueue:  make(chan Runnable),
 		standByCh:  make(chan chan Runnable),
 	}
 
@@ -21,7 +21,7 @@ func New(args ...int) *Pool {
 		case 0: //maxRoutine
 			p.maxRoutine = v
 		case 1: //queueSize
-			p.taskCh = make(chan Runnable, v)
+			p.taskQueue = make(chan Runnable, v)
 		case 2: //ttl
 			p.ttl = uint(v)
 		}
@@ -32,29 +32,40 @@ func New(args ...int) *Pool {
 		p.routinePool[i] = &routine{}
 	}
 
-	go p.master()
+	go p.masterRoutine()
 
 	return p
 }
 
-func (p *Pool) master() {
+func (p *Pool) masterRoutine() {
+	idleQueue := make(chan chan Runnable)
+	tryFork := make(chan bool, 1)
+
 	for {
-		newRoutineForked := false
 		select {
-		case task := <-p.taskCh:
-		forkLoop:
+		case task := <-p.taskQueue:
+			tryFork <- true
+
+		fetchRoutineLoop:
 			for {
 				select {
-				case taskCh := <-p.standByCh:
+				case taskCh := <-idleQueue:
 					taskCh <- task
-					break forkLoop
+					<-tryFork
+					break fetchRoutineLoop
+
 				default:
-					if !newRoutineForked {
-						for _, routine := range p.routinePool {
-							if ROUTINE_STATUS_DOWN == routine.status {
-								go routine.run(p.standByCh, p.ttl)
-								newRoutineForked = true
+					for {
+						select {
+						case <-tryFork:
+							p.fork(idleQueue)
+						case taskCh := <-idleQueue:
+							taskCh <- task
+
+							if 0 < len(tryFork) {
+								<-tryFork
 							}
+							break fetchRoutineLoop
 						}
 					}
 				}
@@ -63,6 +74,18 @@ func (p *Pool) master() {
 	}
 }
 
+func (p *Pool) fork(idleQueue chan<- chan Runnable) bool {
+	for _, routine := range p.routinePool {
+		if ROUTINE_STATUS_DOWN == routine.status {
+			routine.setStatus(ROUTINE_STATUS_STANDBY)
+			go routine.run(idleQueue, p.ttl)
+			return true
+		}
+	}
+
+	return false
+}
+
 func (p *Pool) Start(task Runnable) {
-	p.taskCh <- task
+	p.taskQueue <- task
 }
