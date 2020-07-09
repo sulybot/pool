@@ -10,62 +10,79 @@ const (
 
 type routine struct {
 	status int
-	taskCh chan Runnable
 }
 
-func (r *routine) run(routineStandByCh chan<- chan Runnable, ttl uint) {
-	r.status = ROUTINE_STATUS_STANDBY
-	defer func() {
-		r.status = ROUTINE_STATUS_DOWN
-	}()
-
-	if nil == r.taskCh {
-		r.taskCh = make(chan Runnable)
-		defer close(r.taskCh)
-	}
-
-	var (
-		longLive  bool = 0 == ttl
-		timer     *time.Timer
-		timeoutCh <-chan time.Time
-	)
-
-	if !longLive {
-		timer = time.NewTimer(time.Duration(ttl))
-		timeoutCh = timer.C
+func (r *routine) run(idleQueue chan<- chan Runnable, idleTimeout uint) {
+	if 0 == idleTimeout {
+		r.foreverRun(idleQueue)
 	} else {
-		timeoutCh = make(<-chan time.Time, 0)
+		r.expireRun(idleQueue, idleTimeout)
 	}
+}
+
+func (r *routine) foreverRun(idleQueue chan<- chan Runnable) {
+	defer r.setStatus(ROUTINE_STATUS_DOWN)
+
+	taskCh := make(chan Runnable)
+	defer close(taskCh)
 
 	for {
-		r.status = ROUTINE_STATUS_STANDBY
+		r.setStatus(ROUTINE_STATUS_STANDBY)
 
 		select {
-		case routineStandByCh <- r.taskCh:
+		case idleQueue <- taskCh:
 			select {
-			case task, ok := <-r.taskCh:
-				r.status = ROUTINE_STATUS_WORKING
-				if !longLive && !timer.Stop() {
-					select {
-					case <-timer.C:
-					default:
-					}
+			case task, ok := <-taskCh:
+				r.setStatus(ROUTINE_STATUS_WORKING)
+				if !ok {
+					return
 				}
+
+				task.Run()
+			}
+		}
+	}
+}
+
+func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout uint) {
+	defer r.setStatus(ROUTINE_STATUS_DOWN)
+
+	taskCh := make(chan Runnable)
+	defer close(taskCh)
+
+	idleDuration := time.Duration(idleTimeout) * time.Second
+	timer := time.NewTimer(idleDuration)
+	defer timer.Stop()
+
+	for {
+		r.setStatus(ROUTINE_STATUS_STANDBY)
+
+		select {
+		case <-timer.C:
+			return
+
+		case idleQueue <- taskCh:
+			select {
+			case task, ok := <-taskCh:
+				r.setStatus(ROUTINE_STATUS_WORKING)
 
 				if !ok {
 					return
 				}
 
 				task.Run()
-				if !longLive {
-					timer.Reset(time.Duration(ttl))
-				}
-			}
 
-		case <-timeoutCh:
-			return
+				if !timer.Stop() {
+					<-timer.C
+				}
+				timer.Reset(idleDuration)
+			}
 		}
 	}
+}
+
+func (r *routine) setStatus(status int) {
+	r.status = status
 }
 
 type Runnable interface {
