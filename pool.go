@@ -9,6 +9,7 @@ type Pool struct {
 func New( /*maxRoutine, taskQueueSize int*/ maxAndSize ...int) *Pool {
 	var maxRoutine, taskQueueSize int
 
+inital:
 	for k, v := range maxAndSize {
 		switch k {
 		case 0: //maxRoutine
@@ -16,17 +17,19 @@ func New( /*maxRoutine, taskQueueSize int*/ maxAndSize ...int) *Pool {
 		case 1: //queueSize
 			taskQueueSize = v
 		default:
-			break
+			break inital
 		}
 	}
 
-	p := &Pool{}
-	p.SetIdleTimeout(10)
-	p.routinePool = make([]*routine, maxRoutine, maxRoutine)
+	p := &Pool{
+		idleTimeout: 10,
+		routinePool: make([]*routine, maxRoutine, maxRoutine),
+		taskQueue:   make(chan Runnable, taskQueueSize),
+	}
+
 	for i := 0; i < maxRoutine; i++ {
 		p.routinePool[i] = &routine{}
 	}
-	p.taskQueue = make(chan Runnable, taskQueueSize)
 
 	go p.masterRoutine()
 	return p
