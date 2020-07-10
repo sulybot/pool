@@ -8,7 +8,7 @@
 
 ## 用法 (with GO111MODULE=on)
 导入 pool 包:
-```
+```go
 package main
 
 import (
