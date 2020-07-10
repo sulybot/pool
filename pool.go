@@ -45,13 +45,13 @@ func (p *Pool) masterRoutine() {
 		case task := <-p.taskQueue:
 			tryFork <- true
 
-		fetchRoutineLoop:
+		popRoutineLoop:
 			for {
 				select {
 				case taskCh := <-idleQueue:
 					taskCh <- task
 					<-tryFork
-					break fetchRoutineLoop
+					break popRoutineLoop
 
 				default:
 					for {
@@ -64,7 +64,7 @@ func (p *Pool) masterRoutine() {
 							if 0 < len(tryFork) {
 								<-tryFork
 							}
-							break fetchRoutineLoop
+							break popRoutineLoop
 						}
 					}
 				}
