@@ -78,8 +78,8 @@ func (p *Pool) masterRoutine() {
 
 func (p *Pool) fork(idleQueue chan<- chan Runnable) bool {
 	for _, routine := range p.routinePool {
-		if ROUTINE_STATUS_DOWN == routine.status {
-			routine.setStatus(ROUTINE_STATUS_STANDBY)
+		if routineStatusDown == routine.status {
+			routine.setStatus(routineStatusStandby)
 			go routine.run(idleQueue, p.idleTimeout)
 			return true
 		}

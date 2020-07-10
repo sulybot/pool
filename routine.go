@@ -3,9 +3,9 @@ package pool
 import "time"
 
 const (
-	ROUTINE_STATUS_DOWN    = 0
-	ROUTINE_STATUS_STANDBY = 1
-	ROUTINE_STATUS_WORKING = 2
+	routineStatusDown    = 0
+	routineStatusStandby = 1
+	routineStatusWorking = 2
 )
 
 type routine struct {
@@ -21,19 +21,19 @@ func (r *routine) run(idleQueue chan<- chan Runnable, idleTimeout int64) {
 }
 
 func (r *routine) foreverRun(idleQueue chan<- chan Runnable) {
-	defer r.setStatus(ROUTINE_STATUS_DOWN)
+	defer r.setStatus(routineStatusDown)
 
 	taskCh := make(chan Runnable)
 	defer close(taskCh)
 
 	for {
-		r.setStatus(ROUTINE_STATUS_STANDBY)
+		r.setStatus(routineStatusStandby)
 
 		select {
 		case idleQueue <- taskCh:
 			select {
 			case task, ok := <-taskCh:
-				r.setStatus(ROUTINE_STATUS_WORKING)
+				r.setStatus(routineStatusWorking)
 				if !ok {
 					return
 				}
@@ -45,7 +45,7 @@ func (r *routine) foreverRun(idleQueue chan<- chan Runnable) {
 }
 
 func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout int64) {
-	defer r.setStatus(ROUTINE_STATUS_DOWN)
+	defer r.setStatus(routineStatusDown)
 
 	taskCh := make(chan Runnable)
 	defer close(taskCh)
@@ -55,7 +55,7 @@ func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout int64) {
 	defer timer.Stop()
 
 	for {
-		r.setStatus(ROUTINE_STATUS_STANDBY)
+		r.setStatus(routineStatusStandby)
 
 		select {
 		case <-timer.C:
@@ -64,7 +64,7 @@ func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout int64) {
 		case idleQueue <- taskCh:
 			select {
 			case task, ok := <-taskCh:
-				r.setStatus(ROUTINE_STATUS_WORKING)
+				r.setStatus(routineStatusWorking)
 
 				if !ok {
 					return
