@@ -28,7 +28,7 @@ inital:
 	}
 
 	for i := 0; i < maxRoutine; i++ {
-		p.routinePool[i] = &routine{}
+		p.routinePool[i] = new(routine)
 	}
 
 	go p.masterRoutine()
@@ -78,7 +78,7 @@ func (p *Pool) masterRoutine() {
 
 func (p *Pool) fork(idleQueue chan<- chan Runnable) bool {
 	for _, routine := range p.routinePool {
-		if routineStatusDown == routine.status {
+		if routineStatusDown == routine.status() {
 			routine.setStatus(routineStatusStandby)
 			go routine.run(idleQueue, p.idleTimeout)
 			return true

@@ -8,9 +8,7 @@ const (
 	routineStatusWorking = 2
 )
 
-type routine struct {
-	status int
-}
+type routine uint8
 
 func (r *routine) run(idleQueue chan<- chan Runnable, idleTimeout int64) {
 	if 0 == idleTimeout {
@@ -33,11 +31,11 @@ func (r *routine) foreverRun(idleQueue chan<- chan Runnable) {
 		case idleQueue <- taskCh:
 			select {
 			case task, ok := <-taskCh:
-				r.setStatus(routineStatusWorking)
 				if !ok {
 					return
 				}
 
+				r.setStatus(routineStatusWorking)
 				task.Run()
 			}
 		}
@@ -64,12 +62,11 @@ func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout int64) {
 		case idleQueue <- taskCh:
 			select {
 			case task, ok := <-taskCh:
-				r.setStatus(routineStatusWorking)
-
 				if !ok {
 					return
 				}
 
+				r.setStatus(routineStatusWorking)
 				task.Run()
 
 				if !timer.Stop() {
@@ -81,8 +78,12 @@ func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout int64) {
 	}
 }
 
-func (r *routine) setStatus(status int) {
-	r.status = status
+func (r *routine) setStatus(status uint8) {
+	*r = routine(status)
+}
+
+func (r *routine) status() uint8 {
+	return uint8(*r)
 }
 
 type Runnable interface {
