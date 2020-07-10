@@ -4,6 +4,7 @@ type Pool struct {
 	idleTimeout int64
 	routinePool []*routine
 	taskQueue   chan Runnable
+	termSignal  chan bool
 }
 
 func New( /*maxRoutine, taskQueueSize int*/ maxAndSize ...int) *Pool {
@@ -42,10 +43,24 @@ func (p *Pool) SetIdleTimeout(idleTimeout int64) {
 func (p *Pool) masterRoutine() {
 	idleQueue := make(chan chan Runnable)
 	tryFork := make(chan bool, 1)
+	defer close(idleQueue)
+	defer close(tryFork)
 
 	for {
 		select {
-		case task := <-p.taskQueue:
+		case task, ok := <-p.taskQueue:
+			if !ok {
+				for p.removeDownRoutine(); 0 < len(p.routinePool); p.removeDownRoutine() {
+					select {
+					case taskCh := <-idleQueue:
+						close(taskCh)
+					default:
+					}
+				}
+
+				p.termSignal <- true
+				return
+			}
 			tryFork <- true
 
 		popRoutineLoop:
@@ -88,6 +103,29 @@ func (p *Pool) fork(idleQueue chan<- chan Runnable) bool {
 	return false
 }
 
+func (p *Pool) allDown() bool {
+	return len(p.routinePool) == 0
+}
+
+func (p *Pool) removeDownRoutine() {
+	filter := p.routinePool[:0]
+
+	for _, routine := range p.routinePool {
+		if routineStatusDown != routine.status() {
+			filter = append(filter, routine)
+		}
+	}
+
+	p.routinePool = filter
+}
+
 func (p *Pool) Start(task Runnable) {
 	p.taskQueue <- task
+}
+
+func (p *Pool) Shutdown() chan bool {
+	p.termSignal = make(chan bool)
+	close(p.taskQueue)
+
+	return p.termSignal
 }

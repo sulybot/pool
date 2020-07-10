@@ -46,8 +46,6 @@ func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout int64) {
 	defer r.setStatus(routineStatusDown)
 
 	taskCh := make(chan Runnable)
-	defer close(taskCh)
-
 	idleDuration := time.Duration(idleTimeout) * time.Second
 	timer := time.NewTimer(idleDuration)
 	defer timer.Stop()
