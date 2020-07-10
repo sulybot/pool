@@ -1,40 +1,39 @@
 package pool
 
 type Pool struct {
-	ttl         uint
-	maxRoutine  int
-	taskQueue   chan Runnable
-	standByCh   chan chan Runnable
+	idleTimeout int64
 	routinePool []*routine
+	taskQueue   chan Runnable
 }
 
-func New(args ...int) *Pool {
-	p := &Pool{
-		ttl:        0,
-		maxRoutine: 10,
-		taskQueue:  make(chan Runnable),
-		standByCh:  make(chan chan Runnable),
-	}
+func New( /*maxRoutine, taskQueueSize int*/ maxAndSize ...int) *Pool {
+	var maxRoutine, taskQueueSize int
 
-	for k, v := range args {
+	for k, v := range maxAndSize {
 		switch k {
 		case 0: //maxRoutine
-			p.maxRoutine = v
+			maxRoutine = v
 		case 1: //queueSize
-			p.taskQueue = make(chan Runnable, v)
-		case 2: //ttl
-			p.ttl = uint(v)
+			taskQueueSize = v
+		default:
+			break
 		}
 	}
 
-	p.routinePool = make([]*routine, p.maxRoutine)
-	for i := 0; i < p.maxRoutine; i++ {
+	p := &Pool{}
+	p.SetIdleTimeout(10)
+	p.routinePool = make([]*routine, maxRoutine, maxRoutine)
+	for i := 0; i < maxRoutine; i++ {
 		p.routinePool[i] = &routine{}
 	}
+	p.taskQueue = make(chan Runnable, taskQueueSize)
 
 	go p.masterRoutine()
-
 	return p
+}
+
+func (p *Pool) SetIdleTimeout(idleTimeout int64) {
+	p.idleTimeout = idleTimeout
 }
 
 func (p *Pool) masterRoutine() {
@@ -78,7 +77,7 @@ func (p *Pool) fork(idleQueue chan<- chan Runnable) bool {
 	for _, routine := range p.routinePool {
 		if ROUTINE_STATUS_DOWN == routine.status {
 			routine.setStatus(ROUTINE_STATUS_STANDBY)
-			go routine.run(idleQueue, p.ttl)
+			go routine.run(idleQueue, p.idleTimeout)
 			return true
 		}
 	}

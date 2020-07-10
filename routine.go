@@ -12,7 +12,7 @@ type routine struct {
 	status int
 }
 
-func (r *routine) run(idleQueue chan<- chan Runnable, idleTimeout uint) {
+func (r *routine) run(idleQueue chan<- chan Runnable, idleTimeout int64) {
 	if 0 == idleTimeout {
 		r.foreverRun(idleQueue)
 	} else {
@@ -44,7 +44,7 @@ func (r *routine) foreverRun(idleQueue chan<- chan Runnable) {
 	}
 }
 
-func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout uint) {
+func (r *routine) expireRun(idleQueue chan<- chan Runnable, idleTimeout int64) {
 	defer r.setStatus(ROUTINE_STATUS_DOWN)
 
 	taskCh := make(chan Runnable)
