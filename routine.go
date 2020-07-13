@@ -38,7 +38,6 @@ func (r *routine) foreverRun(idleQueue chan<- chan Runnable) {
 	defer r.setStatus(routineStatusDown)
 
 	taskCh := make(chan Runnable)
-	defer close(taskCh)
 
 	for {
 		r.setStatus(routineStatusStandby)

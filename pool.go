@@ -17,7 +17,7 @@ type Pool struct {
 func New( /*maxRoutine, taskQueueSize int*/ maxAndSize ...int) *Pool {
 	var maxRoutine, taskQueueSize int
 
-inital:
+initial:
 	for k, v := range maxAndSize {
 		switch k {
 		case 0: //maxRoutine
@@ -25,7 +25,7 @@ inital:
 		case 1: //queueSize
 			taskQueueSize = v
 		default:
-			break inital
+			break initial
 		}
 	}
 
