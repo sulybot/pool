@@ -3,6 +3,7 @@
 
 ## 功能
 - 限制 goroutine 总数
+- 复用 goroutine
 - 设置 goroutine 空闲时间
 - 安全、平滑结束所有 goroutine
 
