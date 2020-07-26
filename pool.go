@@ -2,6 +2,7 @@ package pool
 
 import (
 	"fmt"
+	"time"
 )
 
 // Pool represents a goroutine pool.
@@ -69,13 +70,23 @@ func (p *Pool) masterRoutine() {
 			if !ok {
 				// If taskQueue was closed, master routine will shutdown all the routines gracefully.
 				// In the for loop, we remove all the down routines until the routine pool is empty.
-				for p.removeDownRoutine(); 0 < len(p.routinePool); p.removeDownRoutine() {
+				// first, define a wait time duration for the long running task
+				var wait time.Duration
+				for 0 < p.removeDownRoutine() {
 					select {
 					case taskCh := <-idleQueue:
 						// close the taskCh, let the routine return
 						// the routine status will be set to down
 						close(taskCh)
+						wait = 0
 					default:
+						// if working routine exists,
+						// we just sleep for a while to wait for it finishing.
+						// the wait duration increase if no idleTaskQueue popped out.
+						time.Sleep(wait * time.Millisecond)
+						if wait < 1000 {
+							wait++
+						}
 					}
 				}
 
@@ -137,9 +148,9 @@ func (p *Pool) fork(idleQueue chan<- chan Runnable) bool {
 }
 
 // removeDownRoutine will remove the routine with down status
-// and decrease the routinePool size
+// and decrease the routinePool size then return the length of routines.
 // it should only called when the pool is shuting down.
-func (p *Pool) removeDownRoutine() {
+func (p *Pool) removeDownRoutine() int {
 	filter := p.routinePool[:0]
 
 	for _, routine := range p.routinePool {
@@ -149,6 +160,8 @@ func (p *Pool) removeDownRoutine() {
 	}
 
 	p.routinePool = filter
+
+	return len(p.routinePool)
 }
 
 // funcWrapper is a struct to implements Runnable,
