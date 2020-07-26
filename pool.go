@@ -1,5 +1,10 @@
 package pool
 
+import (
+	"fmt"
+	"time"
+)
+
 // Pool represents a goroutine pool.
 type Pool struct {
 	idleTimeout int64
@@ -9,13 +14,13 @@ type Pool struct {
 }
 
 // New return a new pool.
-// It accept two args, maxRoutine and taskQueueSize.
+// It accepts two args, maxRoutine and taskQueueSize.
 // maxRoutine represents how many goroutine can be forked in the pool.
 // taskQueueSize represents the task queue size.
 // When all of the goroutines are working and more task is start,
 // the new task will cached in a taskQueue and waiting for the standby routine.
-func New( /*maxRoutine, taskQueueSize int*/ maxAndSize ...int) *Pool {
-	var maxRoutine, taskQueueSize int
+func New( /*maxRoutine, taskQueueSize int*/ maxAndSize ...uint64) *Pool {
+	var maxRoutine, taskQueueSize uint64 = 1, 0
 
 initial:
 	for k, v := range maxAndSize {
@@ -36,7 +41,7 @@ initial:
 	}
 
 	// initialize the routine pool slice
-	for i := 0; i < maxRoutine; i++ {
+	for i := uint64(0); i < maxRoutine; i++ {
 		p.routinePool[i] = new(routine)
 	}
 
@@ -65,13 +70,23 @@ func (p *Pool) masterRoutine() {
 			if !ok {
 				// If taskQueue was closed, master routine will shutdown all the routines gracefully.
 				// In the for loop, we remove all the down routines until the routine pool is empty.
-				for p.removeDownRoutine(); 0 < len(p.routinePool); p.removeDownRoutine() {
+				// first, define a wait time duration for the long running task
+				var wait time.Duration
+				for 0 < p.removeDownRoutine() {
 					select {
 					case taskCh := <-idleQueue:
 						// close the taskCh, let the routine return
 						// the routine status will be set to down
 						close(taskCh)
+						wait = 0
 					default:
+						// if working routine exists,
+						// we just sleep for a while to wait for it finishing.
+						// the wait duration increase if no idleTaskQueue popped out.
+						time.Sleep(wait * time.Millisecond)
+						if wait < 1000 {
+							wait++
+						}
 					}
 				}
 
@@ -133,9 +148,9 @@ func (p *Pool) fork(idleQueue chan<- chan Runnable) bool {
 }
 
 // removeDownRoutine will remove the routine with down status
-// and decrease the routinePool size
+// and decrease the routinePool size then return the length of routines.
 // it should only called when the pool is shuting down.
-func (p *Pool) removeDownRoutine() {
+func (p *Pool) removeDownRoutine() int {
 	filter := p.routinePool[:0]
 
 	for _, routine := range p.routinePool {
@@ -145,14 +160,39 @@ func (p *Pool) removeDownRoutine() {
 	}
 
 	p.routinePool = filter
+
+	return len(p.routinePool)
 }
 
-// Start will push the Runnable task into the taskQueue
+// funcWrapper is a struct to implements Runnable,
+// this make Pool.Start accepts func() as argument.
+// Start method will wrap a func as funcWrapper then push into taskQueue
+type funcWrapper func()
+
+// Run just call the funcWrapper itself
+func (w *funcWrapper) Run() {
+	(*w)()
+}
+
+// Start will push the argument as a task into the taskQueue,
 // which means a routine will start and work.
-// A panic will occured if the pool is already shutdown, because of the taskQueue is closed.
-// be careful in concurrency scenario.
-func (p *Pool) Start(task Runnable) {
-	p.taskQueue <- task
+// A task should be the type of Runnable or func(), otherwise, an error will be returned when other types given.
+// A panic will be occurred if the pool is already shutdown, because of the taskQueue is closed,
+// So, be careful in concurrency scenario.
+func (p *Pool) Start(task interface{}) error {
+	switch t := task.(type) {
+	case func():
+		var w funcWrapper = t
+		p.taskQueue <- &w
+
+	case Runnable:
+		p.taskQueue <- t
+
+	default:
+		return fmt.Errorf("invalid task type for Pool.Start, Runnable or func() expected, %T given", t)
+	}
+
+	return nil
 }
 
 // Shutdown will stop all the routine gracefully.

@@ -1,15 +1,15 @@
 # pool
-English | [中文](README_ZH.md)
+[English](README.md) | 中文
 
-A goroutine pool in golang.
+一个 Go 语言中的 goroutine 协程池。
 
-## Feature
-- goroutine count limit
-- goroutine reuse
-- set goroutine idle timeout
-- all goroutine shutdown gracefully
+## 功能
+- 限制 goroutine 总数
+- 复用 goroutine
+- 设置 goroutine 空闲时间
+- 安全、平滑结束所有 goroutine
 
-## Install
+## 安装
 ### go get:
 ```shell
 $ go get -u github.com/sulybot/pool
@@ -27,8 +27,8 @@ go: found github.com/sulybot/pool in github.com/sulybot/pool v0.1.0
 $ go run main.go
 ```
 
-## Usage
-### run anonymous func in pool:
+## 用法
+### 运行匿名函数
 ```go
 package main
 import (
@@ -37,26 +37,26 @@ import (
 )
 
 func main() {
-	// create a routine pool, max routine count 10, task cache queue 100
+	// 创建一个协程池, 最大 10 个协程, task 队列最大缓存 100 个元素
 	p := pool.New(10, 100)
-	// set routine idle timeout in second, default 10, set to 0 to disable timeout
+	// 设置协程池中 goroutine 的空闲时长,单位为秒,默认 10 秒,设置为 0 永不超时
 	p.setIdleTimeout(60)
 
 	for i := 0, i < 100; i++ {
 		n := i
 
-		// call Start to start a goroutine and execute the anonymous func
+		// 调用 Start 方法开启一个协程并执行匿名函数
 		p.Start(func() {
 			fmt.Println(n)
 		})
 	}
 
-	// call Shutdown to stop the pool and wait for all the goroutines shutdown
+	// 关闭协程池并等待所有协程安全退出
 	<-p.Shutdown()
 }
 ```
 
-### implements of pool.Runnable:
+### 实现 pool.Runnable 接口
 ```go
 package main
 
@@ -65,12 +65,12 @@ import (
 	"github.com/sulybot/pool"
 )
 
-// define a struct
+// 定义一个结构体
 type Task struct {
 	id int
 }
 
-// implement Run method for the struct
+// 为结构体实现 Run 方法
 func (r *Task) Run() {
 	fmt.Println(r.id)
 }
@@ -80,13 +80,13 @@ func main() {
 	p.SetIdleTimeout(60)
 
 	for i := 0; i < 100; i++ {
-		// declare a pool.Runnable variable
+        // 声明一个 pool.Runnable 接口变量
 		var r pool.Runnable
 		r = &Task{
 			id: i,
 		}
 
-		// call start and pass the pool.Runnable
+		// 调用 Start 方法,传入 Runnable
 		p.Start(r)
 	}
 
